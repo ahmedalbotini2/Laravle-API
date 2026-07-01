@@ -47,18 +47,18 @@ All AI-related settings live in `.env`:
 AI_PROVIDER=stub          # stub | openai  (add more as needed)
 AI_API_KEY=               # Your provider API key
 AI_API_URL=               # Optional base URL override
-AI_MODEL=                 # Optional model name (e.g. gpt-4o)
+AI_MODEL=                 # Optional model name 
 AI_TIMEOUT=30             # HTTP timeout in seconds
 ```
 
 > **Tip:** The default provider is `stub`, which returns fake data and requires no API key — perfect for development.
 
-To switch to OpenAI:
+To switch to OpenRouter:
 
 ```dotenv
-AI_PROVIDER=openai
+AI_PROVIDER=openrouter
 AI_API_KEY=sk-your-key-here
-AI_MODEL=gpt-4o
+AI_MODEL=nvidia
 ```
 
 ---
