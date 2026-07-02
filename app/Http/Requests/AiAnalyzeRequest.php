@@ -2,7 +2,9 @@
 
 namespace App\Http\Requests;
 
+use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Http\Exceptions\HttpResponseException;
 
 /**
  * Validates incoming AI analysis requests.
@@ -70,5 +72,20 @@ class AiAnalyzeRequest extends FormRequest
             'prompt.string'   => 'The prompt must be a string.',
             'prompt.max'      => 'The prompt must not exceed 5 000 characters.',
         ];
+    }
+
+    /**
+     * Return validation failures as a stable `{success: false, ...}` JSON
+     * envelope (instead of Laravel's default shape) so the Flutter/Android
+     * client can rely on a single `success` field, while keeping the
+     * original `message`/`errors` keys intact for backward compatibility.
+     */
+    protected function failedValidation(Validator $validator): void
+    {
+        throw new HttpResponseException(response()->json([
+            'success' => false,
+            'message' => $validator->errors()->first(),
+            'errors'  => $validator->errors(),
+        ], 422));
     }
 }

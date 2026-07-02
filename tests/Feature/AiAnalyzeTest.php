@@ -153,8 +153,8 @@ class AiAnalyzeTest extends TestCase
 
         $response->assertStatus(502)
                  ->assertJson([
-                     'error' => 'AI provider error',
-                     'code'  => 502,
+                     'success' => false,
+                     'code'    => 502,
                  ]);
     }
 

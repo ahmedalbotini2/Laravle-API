@@ -50,7 +50,7 @@ class AiProviderException extends Exception
     public function render(): JsonResponse
     {
         return response()->json([
-            'error'   => 'AI provider error',
+            'success' => false,
             'message' => $this->getMessage(),
             'code'    => $this->statusCode,
         ], $this->statusCode);

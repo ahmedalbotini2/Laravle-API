@@ -34,6 +34,12 @@ class AiController extends Controller
         // Print to console (visible in `php artisan serve` output)
         Log::channel('stderr')->info('AI Analysis Result', $result);
 
-        return response()->json($result);
+        // Wrap the provider result with a `success` flag so the Flutter/Android
+        // client can branch on a single stable field instead of inferring
+        // success from the HTTP status code alone.
+        return response()->json([
+            'success' => true,
+            ...$result,
+        ]);
     }
 }
