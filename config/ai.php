@@ -57,6 +57,23 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Model Rotation (optional)
+    |--------------------------------------------------------------------------
+    |
+    | Comma-separated list of models to try in order for each request, e.g.:
+    |   AI_MODELS="nvidia/nemotron-nano-12b-v2-vl:free,google/gemma-4-31b-it:free"
+    |
+    | If a model returns HTTP 429 (quota/rate limit exceeded), the next model
+    | in the list is tried immediately for the same request. If this is left
+    | empty, the single AI_MODEL above is used, or — if that's empty too —
+    | the provider's own built-in default rotation of free models.
+    |
+    */
+
+    'models' => env('AI_MODELS'),
+
+    /*
+    |--------------------------------------------------------------------------
     | HTTP Timeout (seconds)
     |--------------------------------------------------------------------------
     |
