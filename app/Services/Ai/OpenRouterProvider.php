@@ -11,8 +11,11 @@ use Illuminate\Support\Facades\Log;
 /**
  * OpenRouter-based AI provider.
  *
- * Sends the image + prompt to the OpenRouter Chat Completions API and parses
- * the response into the standardised {percentage, text} format.
+ * Pure passthrough: forwards the image + prompt to the OpenRouter Chat
+ * Completions API exactly as received (no server-side system message,
+ * no fixed response schema) and returns the decoded JSON as-is. The
+ * caller's prompt fully controls both the instructions and the expected
+ * response shape.
  *
  * OpenRouter is compatible with the OpenAI Chat Completions API but routes
  * requests to multiple model providers. Configure the model string using the
@@ -51,14 +54,12 @@ class OpenRouterProvider implements AiProviderInterface
      */
     public function analyze(string $imageBase64, string $prompt): array
     {
-        $systemPrompt = <<<'SYSTEM'
-You are an image analysis assistant. Analyze the provided image based on the user's prompt.
-You MUST respond with valid JSON only — no markdown, no explanation outside the JSON.
-The JSON must have exactly two keys:
-  - "percentage" (integer 0–100): a confidence or relevance score.
-  - "text" (string): your detailed analysis based on the user's prompt.
-SYSTEM;
-
+        // ✅ محدَّث: لا توجد أي رسالة "system" من عندنا بعد الآن. الخادم لا
+        // يتحكم بأي تعليمات ولا يفرض أي شكل استجابة — كل التعليمات تأتي
+        // بالكامل ضمن الـ $prompt المُرسَل مع الصورة من التطبيق (تماماً
+        // نفس شكل الطلب في DirectOpenRouterAnalyzer، الذي لا يستخدم رسالة
+        // system هو الآخر). هذا يضمن أن هذا الخادم مجرد ناقل (Passthrough)
+        // بحت، وأي تغيير على التعليمات يصير من طرف واحد فقط: البرومت نفسه.
         try {
             $response = Http::timeout($this->timeout)
                 ->withHeaders([
@@ -72,10 +73,6 @@ SYSTEM;
                     'model'       => $this->model,
                     'max_tokens'  => 1024,
                     'messages'    => [
-                        [
-                            'role'    => 'system',
-                            'content' => $systemPrompt,
-                        ],
                         [
                             'role'    => 'user',
                             'content' => [
@@ -91,6 +88,11 @@ SYSTEM;
                                 ],
                             ],
                         ],
+                    ],
+                    // ✅ نفس الإعداد الموجود في DirectOpenRouterAnalyzer بالضبط —
+                    // يفرض على الموديل إرجاع JSON فقط إن كان يدعم هذا الخيار
+                    'response_format' => [
+                        'type' => 'json_object',
                     ],
                 ]);
 
@@ -111,12 +113,15 @@ SYSTEM;
     }
 
     /**
-     * Parse the OpenRouter chat completion response into our standard format.
+     * Parse the OpenRouter chat completion response.
      *
-     * The response structure is identical to OpenAI's Chat Completions API.
+     * ✅ محدَّث: لم يعد يتحقق من مفاتيح محددة (percentage/text) — الخادم
+     * أصبح "جسراً" عاماً بالكامل: أياً كان شكل الـ JSON الذي طلبه المستخدم
+     * ضمن الـ prompt (حالياً: is_unsafe/confidence/reason/regions لمطابقة
+     * DirectOpenRouterAnalyzer في التطبيق)، نُعيده كما هو للعميل ليفسّره.
      *
      * @param  array|null  $body
-     * @return array{percentage: int, text: string}
+     * @return array<string, mixed>
      *
      * @throws AiProviderException
      */
@@ -137,14 +142,7 @@ SYSTEM;
             throw AiProviderException::invalidResponse('Response is not valid JSON');
         }
 
-        if (! isset($decoded['percentage'], $decoded['text'])) {
-            throw AiProviderException::invalidResponse('Missing required keys: percentage, text');
-        }
-
-        return [
-            'percentage' => (int) $decoded['percentage'],
-            'text'       => (string) $decoded['text'],
-        ];
+        return $decoded;
     }
 
     /**
