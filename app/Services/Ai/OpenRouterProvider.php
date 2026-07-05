@@ -24,31 +24,16 @@ class OpenRouterProvider implements AiProviderInterface
 {
     private string $apiKey;
     private string $baseUrl;
-    /** @var string[] Ordered list of models to try, in rotation, for a single request. */
-    private array  $models;
+    private string $model;
     private int    $timeout;
     private string $siteUrl;
     private string $siteName;
-
-    /**
-     * Fallback rotation of free vision-capable models, tried in order when
-     * the caller hasn't configured AI_MODEL / AI_MODELS explicitly. If a
-     * model comes back with HTTP 429 (quota exceeded), the next one in the
-     * list is tried immediately for the same image — this mirrors the old
-     * on-device DirectOpenRouterAnalyzer rotation logic, just moved server
-     * side where the API key is safe.
-     */
-    private const DEFAULT_MODEL_ROTATION = [
-        'nvidia/nemotron-nano-12b-v2-vl:free',
-        'google/gemma-4-31b-it:free',
-        'qwen/qwen2.5-vl-32b-instruct:free',
-    ];
 
     public function __construct()
     {
         $this->apiKey   = config('ai.api_key') ?? '';
         $this->baseUrl  = config('ai.api_url') ?: 'https://openrouter.ai/api/v1';
-        $this->models   = $this->resolveModels();
+        $this->model    = config('ai.model')   ?: 'nvidia/nemotron-3-ultra-550b-a55b:free';
         $this->timeout  = config('ai.timeout') ?: 30;
 
         // OpenRouter uses these headers for rankings/analytics (optional but recommended).
@@ -59,38 +44,6 @@ class OpenRouterProvider implements AiProviderInterface
         if (empty($this->apiKey)) {
             throw AiProviderException::authenticationFailed();
         }
-    }
-
-    /**
-     * Build the ordered list of models to try for each request.
-     *
-     * Priority:
-     *   1. AI_MODELS in .env — comma-separated list, tried in that order.
-     *   2. AI_MODEL in .env — single model, used alone (back-compat).
-     *   3. DEFAULT_MODEL_ROTATION — built-in free-model fallback chain.
-     *
-     * @return string[]
-     */
-    private function resolveModels(): array
-    {
-        $configuredList = config('ai.models');
-        if (! empty($configuredList)) {
-            $models = is_array($configuredList)
-                ? $configuredList
-                : array_map('trim', explode(',', (string) $configuredList));
-
-            $models = array_values(array_filter($models));
-            if (! empty($models)) {
-                return $models;
-            }
-        }
-
-        $singleModel = config('ai.model');
-        if (! empty($singleModel)) {
-            return [$singleModel];
-        }
-
-        return self::DEFAULT_MODEL_ROTATION;
     }
 
     /**
@@ -106,104 +59,55 @@ The JSON must have exactly two keys:
   - "text" (string): your detailed analysis based on the user's prompt.
 SYSTEM;
 
-        $lastException      = null;
-        $allFailedRateLimit = true;
-
-        foreach ($this->models as $index => $model) {
-            try {
-                $result = $this->requestModel($model, $systemPrompt, $prompt, $imageBase64);
-                Log::info('OpenRouter analysis succeeded', ['model' => $model]);
-
-                return $result;
-            } catch (AiProviderException $e) {
-                $lastException = $e;
-
-                if ($e->getStatusCode() === 429) {
-                    Log::warning('OpenRouter model rate-limited, trying next in rotation', [
-                        'model'    => $model,
-                        'position' => $index + 1,
-                        'total'    => count($this->models),
-                    ]);
-
-                    continue; // try the next model in the rotation
-                }
-
-                // Non-429 failure: log it but still try the remaining models,
-                // since the failure may be specific to this one provider/model.
-                $allFailedRateLimit = false;
-                Log::error('OpenRouter model failed, trying next in rotation', [
-                    'model' => $model,
-                    'error' => $e->getMessage(),
-                ]);
-            } catch (RequestException $e) {
-                $allFailedRateLimit = false;
-                $lastException = AiProviderException::upstreamError($e->getMessage());
-                Log::error('OpenRouter request failed', ['model' => $model, 'error' => $e->getMessage()]);
-            } catch (\Throwable $e) {
-                $allFailedRateLimit = false;
-                $lastException = AiProviderException::upstreamError($e->getMessage());
-                Log::error('OpenRouter unexpected error', ['model' => $model, 'error' => $e->getMessage()]);
-            }
-        }
-
-        // Every model in the rotation failed. If they *all* failed specifically
-        // because of rate limiting, say so clearly — that's actionable (wait,
-        // add more models, or switch to a paid model). Otherwise surface the
-        // last real error we hit.
-        if ($allFailedRateLimit) {
-            throw AiProviderException::rateLimited();
-        }
-
-        throw $lastException ?? AiProviderException::upstreamError('All configured models failed');
-    }
-
-    /**
-     * Send a single analysis request to one specific model.
-     *
-     * @throws AiProviderException
-     * @throws RequestException
-     */
-    private function requestModel(string $model, string $systemPrompt, string $prompt, string $imageBase64): array
-    {
-        $response = Http::timeout($this->timeout)
-            ->withHeaders([
-                'Authorization' => "Bearer {$this->apiKey}",
-                'Content-Type'  => 'application/json',
-                // OpenRouter-specific headers
-                'HTTP-Referer'  => $this->siteUrl,
-                'X-Title'       => $this->siteName,
-            ])
-            ->post("{$this->baseUrl}/chat/completions", [
-                'model'       => $model,
-                'max_tokens'  => 1024,
-                'messages'    => [
-                    [
-                        'role'    => 'system',
-                        'content' => $systemPrompt,
-                    ],
-                    [
-                        'role'    => 'user',
-                        'content' => [
-                            [
-                                'type' => 'text',
-                                'text' => $prompt,
-                            ],
-                            [
-                                'type'      => 'image_url',
-                                'image_url' => [
-                                    'url' => "data:image/png;base64,{$imageBase64}",
+        try {
+            $response = Http::timeout($this->timeout)
+                ->withHeaders([
+                    'Authorization' => "Bearer {$this->apiKey}",
+                    'Content-Type'  => 'application/json',
+                    // OpenRouter-specific headers
+                    'HTTP-Referer'  => $this->siteUrl,
+                    'X-Title'       => $this->siteName,
+                ])
+                ->post("{$this->baseUrl}/chat/completions", [
+                    'model'       => $this->model,
+                    'max_tokens'  => 1024,
+                    'messages'    => [
+                        [
+                            'role'    => 'system',
+                            'content' => $systemPrompt,
+                        ],
+                        [
+                            'role'    => 'user',
+                            'content' => [
+                                [
+                                    'type' => 'text',
+                                    'text' => $prompt,
+                                ],
+                                [
+                                    'type'      => 'image_url',
+                                    'image_url' => [
+                                        'url' => "data:image/png;base64,{$imageBase64}",
+                                    ],
                                 ],
                             ],
                         ],
                     ],
-                ],
-            ]);
+                ]);
 
-        if ($response->failed()) {
-            $this->handleErrorResponse($response->status(), $response->body());
+            if ($response->failed()) {
+                $this->handleErrorResponse($response->status(), $response->body());
+            }
+
+            return $this->parseResponse($response->json());
+        } catch (AiProviderException $e) {
+            throw $e; // re-throw our own exceptions
+        } catch (RequestException $e) {
+            Log::error('OpenRouter request failed', ['error' => $e->getMessage()]);
+            throw AiProviderException::upstreamError($e->getMessage());
+        } catch (\Throwable $e) {
+            Log::error('OpenRouter unexpected error', ['error' => $e->getMessage()]);
+            throw AiProviderException::upstreamError($e->getMessage());
         }
-
-        return $this->parseResponse($response->json());
     }
 
     /**
