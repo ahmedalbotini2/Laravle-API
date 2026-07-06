@@ -36,7 +36,7 @@ class OpenRouterProvider implements AiProviderInterface
     {
         $this->apiKey   = config('ai.api_key') ?? '';
         $this->baseUrl  = config('ai.api_url') ?: 'https://openrouter.ai/api/v1';
-        $this->model    = config('ai.model')   ?: 'nvidia/nemotron-3-ultra-550b-a55b:free';
+        $this->model    = config('ai.model')   ?: 'nvidia/nemotron-nano-12b-v2-vl:free';
         $this->timeout  = config('ai.timeout') ?: 30;
 
         // OpenRouter uses these headers for rankings/analytics (optional but recommended).
